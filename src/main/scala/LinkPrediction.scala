@@ -2,12 +2,13 @@ import org.apache.hadoop.yarn.util.RackResolver
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.graphx.GraphLoader
 import org.apache.spark.graphx.lib.PageRank
-import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification._
 import org.apache.spark.ml.feature._
 import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions.{typedLit, udf}
-
+import utils.Utils
 
 object LinkPrediction {
 
@@ -82,30 +83,19 @@ object LinkPrediction {
     post_node_information_df = post_node_information_df.drop("Abstract").drop("Abstract_tmp_1")
     post_node_information_df = post_node_information_df.withColumnRenamed("Abstract_tmp_2", "Abstract")
 
-    val hashingTF = new HashingTF().setInputCol("Abstract").setOutputCol("Abstract_Hash").setNumFeatures(64)
-    val idf = new IDF().setInputCol("Abstract_Hash").setOutputCol("Abstract_Hash_IDF")
-    val normalizer = new Normalizer().setInputCol("Abstract_Hash_IDF").setOutputCol("Abstract_Vector")
-
-    post_node_information_df = hashingTF.transform(post_node_information_df)
-    post_node_information_df = idf.fit(post_node_information_df).transform(post_node_information_df)
-    post_node_information_df = normalizer.transform(post_node_information_df)
-    post_node_information_df = post_node_information_df.drop("Abstract_Hash").drop("Abstract_Hash_IDF")
+    val counter = new CountVectorizer().setInputCol("Abstract").setOutputCol("Abstract_Counts").setBinary(true)
+    post_node_information_df = counter.fit(post_node_information_df).transform(post_node_information_df)
 
     val post_node_information_rdd = post_node_information_df.rdd.collect()
 
-    def dotProduct = udf((id_1: String, id_2: String) => {
+    def cosineSimilarity = udf((id_1: String, id_2: String) => {
       val vector_1 = post_node_information_rdd.filter(row => row.getInt(0) == id_1.toInt)
-        .map(row => row.getAs[org.apache.spark.ml.linalg.SparseVector]("Abstract_Vector"))
+        .map(row => row.getAs[org.apache.spark.ml.linalg.SparseVector]("Abstract_Counts"))
         .take(1)(0)
       val vector_2 = post_node_information_rdd.filter(row => row.getInt(0) == id_2.toInt)
-        .map(row => row.getAs[org.apache.spark.ml.linalg.SparseVector]("Abstract_Vector"))
+        .map(row => row.getAs[org.apache.spark.ml.linalg.SparseVector]("Abstract_Counts"))
         .take(1)(0)
-      var b = 0.0
-      val these = vector_1.toDense.values.iterator
-      val those = vector_2.toDense.values.iterator
-      while (these.hasNext && those.hasNext)
-        b += these.next() * those.next()
-      b
+      new Utils().cosineSimilarity(vector_1.toArray.map(_.toInt), vector_2.toArray.map(_.toInt))
     })
 
 
@@ -142,16 +132,16 @@ object LinkPrediction {
     })
 
     var post_training_set_df = pre_training_set_df
-      .withColumn("cosine_similarity", dotProduct($"Target", $"Source"))
+      .withColumn("cosine_similarity", cosineSimilarity($"Target", $"Source"))
       .withColumn("num_of_same_words_in_title", countSameWordsInTitle($"Target", $"Source"))
       .withColumn("num_of_same_words_in_abstract", countSameWordsInAbstract($"Target", $"Source"))
     var post_testing_set_df = pre_testing_set_df
-      .withColumn("cosine_similarity", dotProduct($"Target", $"Source"))
+      .withColumn("cosine_similarity", cosineSimilarity($"Target", $"Source"))
       .withColumn("num_of_same_words_in_title", countSameWordsInTitle($"Target", $"Source"))
       .withColumn("num_of_same_words_in_abstract", countSameWordsInAbstract($"Target", $"Source"))
 
     //pagerank
-    val graph = GraphLoader.edgeListFile(sc, "src/main/resources/training_set_edges.csv")
+    val graph = GraphLoader.edgeListFile(sc, "src/main/resources/training_set_edges.csv").cache()
     val pageRank = PageRank.runUntilConvergence(graph, 0.0001)
       .vertices.map(p => (p._1, p._2)).collect()
 
@@ -231,6 +221,7 @@ object LinkPrediction {
         "neighbour_similarity"
       ))
       .setOutputCol("features")
+      .setHandleInvalid("skip")
 
     val trainingData = assembler
       .transform(post_training_set_df.withColumnRenamed("Edge", "label").limit(NUM_TO_TRAIN))
@@ -253,7 +244,9 @@ object LinkPrediction {
     })
 
     val testData = assembler
-      .transform(post_testing_set_df.withColumn("label", getLabel($"Target", $"Source")).limit(NUM_TO_TEST))
+      .transform(post_testing_set_df
+        .withColumn("label", getLabel($"Target", $"Source"))
+        .limit(NUM_TO_TEST))
       .select("label", "features")
 
     val t1 = System.nanoTime()
@@ -261,7 +254,7 @@ object LinkPrediction {
     println("Starting model training")
     val t2 = System.nanoTime()
     // Train SVM model.
-    //    val model = new LinearSVC().setMaxIter(1000).setRegParam(0.1).fit(trainingData)
+    //    val model = new LinearSVC().setMaxIter(1000).setRegParam(0.1).setTol(1E-7).fit(trainingData)
     //    model.write.overwrite().save("src/main/models/LSVC")
 
     // Train Logistic Regression model
@@ -271,6 +264,19 @@ object LinkPrediction {
     // Train Neural Network
     //    val model = new MultilayerPerceptronClassifier().setLayers(Array[Int](10, 5, 4, 2)).setSeed(1234L).setMaxIter(1000).fit(trainingData)
     //    model.write.overwrite().save("src/main/models/NeuralNetwork")
+
+    // Train Ramdon Forest
+    // val labelIndexer = new StringIndexer().setInputCol("label").setOutputCol("indexedLabel").fit(trainingData)
+    // val featureIndexer = new VectorIndexer().setInputCol("features").setOutputCol("indexedFeatures").setMaxCategories(4).fit(trainingData)
+    // val rf = new RandomForestClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setNumTrees(100)
+    // val labelConverter = new IndexToString().setInputCol("prediction").setOutputCol("predictedLabel").setLabels(labelIndexer.labels)
+    // val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, rf, labelConverter))
+    // val model = pipeline.fit(trainingData)
+
+    // Train GBoost Tree
+//    val gbt = new GBTClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setMaxIter(1000).setFeatureSubsetStrategy("auto")
+//    val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, gbt, labelConverter))
+//    val model = pipeline.fit(trainingData)
 
     val t3 = System.nanoTime()
     println("Elapsed time: " + ((t3 - t2) / 1E9 / 60).toInt + " minutes")
