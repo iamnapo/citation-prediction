@@ -85,6 +85,16 @@ object FeatureExtraction {
       new Utils().cosineSimilarity(vector_1.toArray.map(_.toInt), vector_2.toArray.map(_.toInt))
     })
 
+    def yearGap = udf((id_1: String, id_2: String) => {
+      val year_1 = post_node_information_rdd.filter(row => row.getInt(0) == id_1.toInt)
+        .map(row => row.getAs[Int]("Year"))
+        .take(1)(0)
+      val year_2 = post_node_information_rdd.filter(row => row.getInt(0) == id_2.toInt)
+        .map(row => row.getAs[Int]("Year"))
+        .take(1)(0)
+      year_1 - year_2
+    })
+
 
     def countSameWordsInTitle = udf((id_1: String, id_2: String) => {
       val title_1 = post_node_information_rdd.filter(row => row.getInt(0) == id_1.toInt)
@@ -137,11 +147,13 @@ object FeatureExtraction {
       .withColumn("num_of_same_words_in_title", countSameWordsInTitle($"Target", $"Source"))
       .withColumn("num_of_same_words_in_abstract", countSameWordsInAbstract($"Target", $"Source"))
       .withColumn("have_same_authors", haveSameAuthors($"Target", $"Source"))
+      .withColumn("year_gap", yearGap($"Target", $"Source"))
     var post_testing_set_df = pre_testing_set_df
       .withColumn("cosine_similarity", cosineSimilarity($"Target", $"Source"))
       .withColumn("num_of_same_words_in_title", countSameWordsInTitle($"Target", $"Source"))
       .withColumn("num_of_same_words_in_abstract", countSameWordsInAbstract($"Target", $"Source"))
       .withColumn("have_same_authors", haveSameAuthors($"Target", $"Source"))
+      .withColumn("year_gap", yearGap($"Target", $"Source"))
 
     //pagerank
     val graph = GraphLoader.edgeListFile(sc, "src/main/resources/training_set_edges.csv").cache()
@@ -214,12 +226,14 @@ object FeatureExtraction {
       .write
       .mode(SaveMode.Overwrite)
       .option("header", "true")
+      .option("codec", "gzip")
       .csv("src/main/resources/dataset/training_set_with_features.csv")
 
     post_training_set_df
       .write
       .mode(SaveMode.Overwrite)
       .option("header", "true")
+      .option("codec", "gzip")
       .csv("src/main/resources/dataset/testing_set_with_features.csv")
   }
 }

@@ -1,8 +1,9 @@
 import org.apache.hadoop.yarn.util.RackResolver
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.ml.clustering.{BisectingKMeans, BisectingKMeansModel}
+import org.apache.spark.ml.clustering.{BisectingKMeans, BisectingKMeansModel, GaussianMixture, KMeans}
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions.udf
 
@@ -35,20 +36,15 @@ object LinkPredictionUnsupervised {
 
     val assembler = new VectorAssembler()
       .setInputCols(Array(
-        "Source",
-        "Target",
         "num_of_same_words_in_title",
         "num_of_same_words_in_abstract",
         "cosine_similarity",
-//        "have_same_authors"
+        "have_same_authors",
+        "year_gap"
       ))
       .setOutputCol("features")
       .setHandleInvalid("skip")
 
-    val trainingData = assembler
-      .transform(training_set_df)
-      .select("features")
-      .cache()
 
     val ground_truth_df = ss.read
       .option("header", value = true)
@@ -71,6 +67,12 @@ object LinkPredictionUnsupervised {
       }
     })
 
+    val trainingData = assembler
+      .transform(testing_set_df
+        .withColumn("label", getLabel($"Target", $"Source"))
+      )
+      .select("features")
+      .cache()
     val testData = assembler
       .transform(testing_set_df
         .withColumn("label", getLabel($"Target", $"Source"))
@@ -87,14 +89,14 @@ object LinkPredictionUnsupervised {
 
 
     // Trains a bisecting k-means model.
-    val bkm = new BisectingKMeans().setK(2).setSeed(1L).setMaxIter(20)
+    val bkm = new BisectingKMeans().setK(2).setSeed(1L).setMaxIter(50)
     val model = bkm.fit(trainingData)
     model.write.overwrite().save("src/main/models/BKMeans")
     //val model = BisectingKMeansModel.load("src/main/models/BKMeans")
 
     // Trains Gaussian Mixture Model
     // val gmm = new GaussianMixture().setK(2).setSeed(1L).setTol(1E-9).setMaxIter(1000)
-    //val model = gmm.fit(trainingData)
+    // val model = gmm.fit(trainingData)
 
     val t1 = System.nanoTime()
     println("Elapsed time: " + ((t1 - t0) / 1E9).toInt + " seconds")
@@ -110,6 +112,8 @@ object LinkPredictionUnsupervised {
     val evaluator = new MulticlassClassificationEvaluator()
       .setMetricName("f1")
     val f1 = evaluator.evaluate(scoreAndLabels.toDF("label", "prediction"))
+    val metrics = new MulticlassMetrics(scoreAndLabels)
+    println(metrics.confusionMatrix)
     println(s"F1 Score is: ${((f1 * 100) * 100).round / 100.toDouble}%")
 
     val t3 = System.nanoTime()

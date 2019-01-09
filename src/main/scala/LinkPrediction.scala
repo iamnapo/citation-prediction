@@ -45,7 +45,9 @@ object LinkPrediction {
         "source_outdegree",
         "target_outdegree",
         "cosine_similarity",
-        "neighbour_similarity"
+        "neighbour_similarity",
+        "have_same_authors",
+        "year_gap"
       ))
       .setOutputCol("features")
       .setHandleInvalid("skip")
