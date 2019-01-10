@@ -1,6 +1,6 @@
 import org.apache.hadoop.yarn.util.RackResolver
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.{Pipeline, PipelineModel}
 import org.apache.spark.ml.classification._
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssembler, VectorIndexer}
@@ -14,8 +14,6 @@ object LinkPrediction {
   Logger.getLogger("akka").setLevel(Level.OFF)
 
   def main(args: Array[String]) {
-
-    val NUM_TO_TEST = 1000
 
     //Create a SparkSession to initialize Spark
     val ss = SparkSession.builder().appName("Link Prediction").master("local[*]").getOrCreate()
@@ -79,49 +77,50 @@ object LinkPrediction {
     })
 
     val testData = assembler
-      .transform(testing_set_df
-        .withColumn("label", getLabel($"Target", $"Source"))
-        .limit(NUM_TO_TEST))
+      .transform(testing_set_df.withColumn("label", getLabel($"Target", $"Source")))
       .select("label", "features")
 
     println("Starting model training")
     val t0 = System.nanoTime()
 
     // Train LSVC model
-    // val model = new LinearSVC().setMaxIter(2000).setRegParam(0.001).setTol(1E-8).setStandardization(false).setAggregationDepth(10).fit(trainingData)
-    // model.write.overwrite().save("src/main/models/LSVC")
+    // val modelLSVC = new LinearSVC().setMaxIter(2000).setRegParam(0.001).setTol(1E-8).setStandardization(false).setAggregationDepth(10).fit(trainingData)
+    // modelLSVC.write.overwrite().save("src/main/models/LSVC")
     // val modelLSVC = LinearSVCModel.load("src/main/models/LSVC")
 
     // Train Logistic Regression model
-    // val model = new LogisticRegression().setMaxIter(2000).setTol(1E-8).fit(trainingData)
-    // model.write.overwrite().save("src/main/models/LogisticRegression")
+    // val modelLogReg = new LogisticRegression().setMaxIter(2000).setTol(1E-8).fit(trainingData)
+    // modelLogReg.write.overwrite().save("src/main/models/LogisticRegression")
     // val modelLogReg = LogisticRegressionModel.load("src/main/models/LogisticRegression")
 
     // Train Neural Network
-    // val model = new MultilayerPerceptronClassifier().setLayers(Array[Int](10, 32, 64, 2)).setMaxIter(1000).fit(trainingData)
-    // model.write.overwrite().save("src/main/models/NeuralNetwork")
+    // val modelNN = new MultilayerPerceptronClassifier().setLayers(Array[Int](12, 32, 64, 2)).fit(trainingData)
+    // modelNN.write.overwrite().save("src/main/models/NeuralNetwork")
     // val modelNN = MultilayerPerceptronClassificationModel.load("src/main/models/NeuralNetwork")
 
-    // Train Ramdom Forest
-    val labelIndexer = new StringIndexer().setInputCol("label").setOutputCol("indexedLabel").fit(trainingData)
-    val featureIndexer = new VectorIndexer().setInputCol("features").setOutputCol("indexedFeatures").setMaxCategories(4).fit(trainingData)
-    val rf = new RandomForestClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setNumTrees(70).setMaxDepth(12)
-    val labelConverter = new IndexToString().setInputCol("prediction").setOutputCol("predictedLabel").setLabels(labelIndexer.labels)
-    val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, rf, labelConverter))
-    val modelRandomForest = pipeline.fit(trainingData)
-    modelRandomForest.write.overwrite().save("src/main/models/RandomForest")
+    // Train Random Forest
+    // val labelIndexer = new StringIndexer().setInputCol("label").setOutputCol("indexedLabel").fit(trainingData)
+    // val featureIndexer = new VectorIndexer().setInputCol("features").setOutputCol("indexedFeatures").setMaxCategories(4).fit(trainingData)
+    // val rf = new RandomForestClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setNumTrees(70).setMaxDepth(12)
+    // val labelConverter = new IndexToString().setInputCol("prediction").setOutputCol("predictedLabel").setLabels(labelIndexer.labels)
+    // val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, rf, labelConverter))
+    // val modelRandomForest = pipeline.fit(trainingData)
+    // modelRandomForest.write.overwrite().save("src/main/models/RandomForest")
+    // val modelRandomForest = PipelineModel.load("src/main/models/RandomForest")
 
     // Train GBoost Tree
-    // val gbt = new GBTClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setMaxIter(1000).setFeatureSubsetStrategy("auto")
+    // val gbt = new GBTClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setMaxDepth(15).setCacheNodeIds(true).setMaxMemoryInMB(1024)
     // val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, gbt, labelConverter))
-    // val model = pipeline.fit(trainingData)
+    // val modelGBoost = pipeline.fit(trainingData)
+    // modelGBoost.write.overwrite().save("src/main/models/GBoost")
+    val modelGBoost = PipelineModel.load("src/main/models/GBoost")
 
     val t1 = System.nanoTime()
     println("Elapsed time: " + ((t1 - t0) / 1E9).toInt + " seconds")
     println("Starting model Prediction")
     val t2 = System.nanoTime()
 
-    val model = modelRandomForest
+    val model = modelGBoost
     val predictions = model.transform(testData)
 
     // Predict (if not trees)
@@ -136,6 +135,7 @@ object LinkPrediction {
     // Predict (if trees)
     val evaluator = new MulticlassClassificationEvaluator()
       .setLabelCol("indexedLabel")
+      //.setLabelCol("label")
       .setPredictionCol("prediction")
       .setMetricName("f1")
     val f1 = evaluator.evaluate(predictions)
