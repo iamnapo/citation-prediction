@@ -68,9 +68,7 @@ object LinkPredictionUnsupervised {
     })
 
     val trainingData = assembler
-      .transform(testing_set_df
-        .withColumn("label", getLabel($"Target", $"Source"))
-      )
+      .transform(training_set_df)
       .select("features")
       .cache()
     val testData = assembler
