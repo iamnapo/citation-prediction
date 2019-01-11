@@ -1,11 +1,9 @@
 import org.apache.hadoop.yarn.util.RackResolver
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.ml.clustering.{BisectingKMeans, BisectingKMeansModel, GaussianMixture, KMeans}
+import org.apache.spark.ml.clustering._
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions.udf
 
 object LinkPredictionUnsupervised {
 
@@ -14,8 +12,6 @@ object LinkPredictionUnsupervised {
   Logger.getLogger("akka").setLevel(Level.OFF)
 
   def main(args: Array[String]) {
-
-    val NUM_TO_TEST = 1000
 
     //Create a SparkSession to initialize Spark
     val ss = SparkSession.builder().appName("Link Prediction Unsupervised").master("local[*]").getOrCreate()
@@ -32,7 +28,7 @@ object LinkPredictionUnsupervised {
       .option("header", value = true)
       .option("delimiter", value = ",")
       .option("inferSchema", "true")
-      .csv("src/main/resources/testing_set_with_features.csv")
+      .csv("src/main/resources/testing_set_with_features_labeled.csv")
 
     val assembler = new VectorAssembler()
       .setInputCols(Array(
@@ -45,36 +41,12 @@ object LinkPredictionUnsupervised {
       .setOutputCol("features")
       .setHandleInvalid("skip")
 
-
-    val ground_truth_df = ss.read
-      .option("header", value = true)
-      .option("delimiter", value = " ")
-      .option("inferSchema", "true")
-      .csv("src/main/resources/Cit-HepTh.txt")
-
-    val ground_truth_rdd = ground_truth_df.rdd.collect()
-
-
-    def getLabel = udf((id_1: String, id_2: String) => {
-      val count = ground_truth_rdd
-        .count(row => {
-          row.getInt(0) == id_1.toInt && row.getInt(1) == id_2.toInt
-        })
-      if (count > 0) {
-        1
-      } else {
-        0
-      }
-    })
-
     val trainingData = assembler
       .transform(training_set_df)
       .select("features")
       .cache()
     val testData = assembler
-      .transform(testing_set_df
-        .withColumn("label", getLabel($"Target", $"Source"))
-        .limit(NUM_TO_TEST))
+      .transform(testing_set_df)
       .select("label", "features")
 
 
@@ -84,17 +56,20 @@ object LinkPredictionUnsupervised {
     // Trains a k-means model.
     // val kmeans = new KMeans().setK(2).setSeed(1L).setTol(1E-9).setMaxIter(1000)
     // val model = kmeans.fit(trainingData)
-
+    // model.write.overwrite().save("src/main/models/KMeans")
+    // val model = KMeans.load("src/main/models/KMeans")
 
     // Trains a bisecting k-means model.
-    val bkm = new BisectingKMeans().setK(2).setSeed(1L).setMaxIter(50)
-    val model = bkm.fit(trainingData)
-    model.write.overwrite().save("src/main/models/BKMeans")
-    //val model = BisectingKMeansModel.load("src/main/models/BKMeans")
+    // val bkm = new BisectingKMeans().setK(2).setSeed(1L).setMaxIter(50)
+    // val model = bkm.fit(trainingData)
+    // model.write.overwrite().save("src/main/models/BKMeans")
+    val model = BisectingKMeansModel.load("src/main/models/BKMeans")
 
     // Trains Gaussian Mixture Model
     // val gmm = new GaussianMixture().setK(2).setSeed(1L).setTol(1E-9).setMaxIter(1000)
     // val model = gmm.fit(trainingData)
+    //  model.write.overwrite().save("src/main/models/GMM")
+    // val model = GaussianMixtureModel("src/main/models/GMM")
 
     val t1 = System.nanoTime()
     println("Elapsed time: " + ((t1 - t0) / 1E9).toInt + " seconds")
@@ -108,12 +83,12 @@ object LinkPredictionUnsupervised {
       .map(p => (p.getInt(0).toDouble, p.getInt(1).toDouble))
       .cache()
     val evaluator = new MulticlassClassificationEvaluator()
+      .setLabelCol("label")
+      .setPredictionCol("prediction")
       .setMetricName("f1")
     val f1 = evaluator.evaluate(scoreAndLabels.toDF("label", "prediction"))
-    val metrics = new MulticlassMetrics(scoreAndLabels)
-    println(metrics.confusionMatrix)
-    println(s"F1 Score is: ${((f1 * 100) * 100).round / 100.toDouble}%")
 
+    println(s"F1 Score is: ${((f1 * 100) * 100).round / 100.toDouble}%")
     val t3 = System.nanoTime()
     println("Elapsed time: " + ((t3 - t2) / 1E9).toInt + " seconds")
 

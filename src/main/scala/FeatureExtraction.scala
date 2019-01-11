@@ -37,6 +37,12 @@ object FeatureExtraction {
       .option("inferSchema", "true")
       .csv("src/main/resources/node_information.csv")
       .na.fill(Map("Authors" -> "Unknown Authors", "Title" -> "Unknown Title", "Abstract" -> "Unknown Abstract"))
+    val ground_truth_df = ss.read
+      .option("header", value = true)
+      .option("delimiter", value = " ")
+      .option("inferSchema", "true")
+      .csv("src/main/resources/Cit-HepTh.txt")
+    val ground_truth_rdd = ground_truth_df.rdd.collect()
 
     var post_node_information_df = pre_node_information_df
 
@@ -95,6 +101,17 @@ object FeatureExtraction {
       year_1 - year_2
     })
 
+    def getLabel = udf((id_1: String, id_2: String) => {
+      val count = ground_truth_rdd
+        .count(row => {
+          row.getInt(0) == id_1.toInt && row.getInt(1) == id_2.toInt
+        })
+      if (count > 0) {
+        1
+      } else {
+        0
+      }
+    })
 
     def countSameWordsInTitle = udf((id_1: String, id_2: String) => {
       val title_1 = post_node_information_rdd.filter(row => row.getInt(0) == id_1.toInt)
@@ -154,6 +171,7 @@ object FeatureExtraction {
       .withColumn("num_of_same_words_in_abstract", countSameWordsInAbstract($"Target", $"Source"))
       .withColumn("have_same_authors", haveSameAuthors($"Target", $"Source"))
       .withColumn("year_gap", yearGap($"Target", $"Source"))
+      .withColumn("label", getLabel($"Target", $"Source"))
 
     //pagerank
     val graph = GraphLoader.edgeListFile(sc, "src/main/resources/training_set_edges.csv").cache()

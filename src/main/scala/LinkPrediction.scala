@@ -5,7 +5,6 @@ import org.apache.spark.ml.classification._
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssembler, VectorIndexer}
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions.udf
 
 object LinkPrediction {
 
@@ -30,7 +29,7 @@ object LinkPrediction {
       .option("header", value = true)
       .option("delimiter", value = ",")
       .option("inferSchema", "true")
-      .csv("src/main/resources/testing_set_with_features.csv")
+      .csv("src/main/resources/testing_set_with_features_labeled.csv")
 
     val assembler = new VectorAssembler()
       .setInputCols(Array(
@@ -55,29 +54,8 @@ object LinkPrediction {
       .select("label", "features")
       .cache()
 
-    val ground_truth_df = ss.read
-      .option("header", value = true)
-      .option("delimiter", value = " ")
-      .option("inferSchema", "true")
-      .csv("src/main/resources/Cit-HepTh.txt")
-
-    val ground_truth_rdd = ground_truth_df.rdd.collect()
-
-
-    def getLabel = udf((id_1: String, id_2: String) => {
-      val count = ground_truth_rdd
-        .count(row => {
-          row.getInt(0) == id_1.toInt && row.getInt(1) == id_2.toInt
-        })
-      if (count > 0) {
-        1
-      } else {
-        0
-      }
-    })
-
     val testData = assembler
-      .transform(testing_set_df.withColumn("label", getLabel($"Target", $"Source")))
+      .transform(testing_set_df)
       .select("label", "features")
 
     println("Starting model training")
@@ -109,7 +87,7 @@ object LinkPrediction {
     // val modelRandomForest = PipelineModel.load("src/main/models/RandomForest")
 
     // Train GBoost Tree
-    // val gbt = new GBTClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setMaxDepth(15).setCacheNodeIds(true).setMaxMemoryInMB(1024)
+    // val gbt = new GBTClassifier().setLabelCol("indexedLabel").setFeaturesCol("indexedFeatures").setMaxDepth(12).setCacheNodeIds(true).setMaxMemoryInMB(1024)
     // val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, gbt, labelConverter))
     // val modelGBoost = pipeline.fit(trainingData)
     // modelGBoost.write.overwrite().save("src/main/models/GBoost")
@@ -123,16 +101,7 @@ object LinkPrediction {
     val model = modelGBoost
     val predictions = model.transform(testData)
 
-    // Predict (if not trees)
-    // val scoreAndLabels = predictions.select("prediction", "label")
-    //  .rdd
-    //  .map(p => (p.getDouble(0), p.getInt(1).toDouble))
-    //  .cache()
-
-    //    val metrics = new MulticlassMetrics(scoreAndLabels)
-    //    println(metrics.confusionMatrix)
-
-    // Predict (if trees)
+    // Predict
     val evaluator = new MulticlassClassificationEvaluator()
       .setLabelCol("indexedLabel")
       //.setLabelCol("label")
