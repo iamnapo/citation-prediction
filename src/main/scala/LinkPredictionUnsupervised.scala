@@ -1,8 +1,8 @@
 import org.apache.hadoop.yarn.util.RackResolver
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.ml.clustering._
-import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.sql.SparkSession
 
 object LinkPredictionUnsupervised {
@@ -15,7 +15,6 @@ object LinkPredictionUnsupervised {
 
     //Create a SparkSession to initialize Spark
     val ss = SparkSession.builder().appName("Link Prediction Unsupervised").master("local[*]").getOrCreate()
-    import ss.implicits._
 
     //Read files
     val training_set_df = ss.read
@@ -47,7 +46,6 @@ object LinkPredictionUnsupervised {
       .cache()
     val testData = assembler
       .transform(testing_set_df)
-      .select("label", "features")
 
 
     println("Starting model training")
@@ -57,7 +55,7 @@ object LinkPredictionUnsupervised {
     // val kmeans = new KMeans().setK(2).setSeed(1L).setTol(1E-9).setMaxIter(1000)
     // val model = kmeans.fit(trainingData)
     // model.write.overwrite().save("src/main/models/KMeans")
-    // val model = KMeans.load("src/main/models/KMeans")
+    // val model = KMeansModel.load("src/main/models/KMeans")
 
     // Trains a bisecting k-means model.
     // val bkm = new BisectingKMeans().setK(2).setSeed(1L).setMaxIter(50)
@@ -68,8 +66,8 @@ object LinkPredictionUnsupervised {
     // Trains Gaussian Mixture Model
     // val gmm = new GaussianMixture().setK(2).setSeed(1L).setTol(1E-9).setMaxIter(1000)
     // val model = gmm.fit(trainingData)
-    //  model.write.overwrite().save("src/main/models/GMM")
-    // val model = GaussianMixtureModel("src/main/models/GMM")
+    // model.write.overwrite().save("src/main/models/GMM")
+    // val model = GaussianMixtureModel.load("src/main/models/GMM")
 
     val t1 = System.nanoTime()
     println("Elapsed time: " + ((t1 - t0) / 1E9).toInt + " seconds")
@@ -78,17 +76,20 @@ object LinkPredictionUnsupervised {
 
     // Predict
     val predictions = model.transform(testData)
-    val scoreAndLabels = predictions.select("label", "prediction")
+    val scoreAndLabels = predictions.select("label", "prediction", "year_gap", "cosine_similarity", "have_same_authors")
       .rdd
-      .map(p => (p.getInt(0).toDouble, p.getInt(1).toDouble))
+      .map(p => (p.getInt(0).toDouble,
+        if (p.getInt(2) < 0 || p.getDouble(3) < 0.05) 0.0 else if (p.getInt(4) > 0) 1.0 else p.getInt(1).toDouble))
       .cache()
-    val evaluator = new MulticlassClassificationEvaluator()
-      .setLabelCol("label")
-      .setPredictionCol("prediction")
-      .setMetricName("f1")
-    val f1 = evaluator.evaluate(scoreAndLabels.toDF("label", "prediction"))
 
-    println(s"F1 Score is: ${((f1 * 100) * 100).round / 100.toDouble}%")
+    val metrics = new MulticlassMetrics(scoreAndLabels)
+    println(s"Weighted precision: ${((metrics.weightedPrecision * 100) * 100).round / 100.toDouble}%")
+    println(s"Weighted recall: ${((metrics.weightedRecall * 100) * 100).round / 100.toDouble}%")
+    println(s"Weighted F1 score: ${((metrics.weightedFMeasure * 100) * 100).round / 100.toDouble}%")
+    println(s"Weighted false positive rate: ${((metrics.weightedFalsePositiveRate * 100) * 100).round / 100.toDouble}%")
+    println("Confusion matrix:")
+    println(metrics.confusionMatrix)
+
     val t3 = System.nanoTime()
     println("Elapsed time: " + ((t3 - t2) / 1E9).toInt + " seconds")
 
