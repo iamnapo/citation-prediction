@@ -43,7 +43,9 @@ object LinkPrediction {
         "cosine_similarity",
         "neighbour_similarity",
         "have_same_authors",
-        "year_gap"
+        "year_gap",
+        "source_pagerank",
+        "target_pagerank"
       ))
       .setOutputCol("features")
       .setHandleInvalid("skip")
@@ -71,21 +73,21 @@ object LinkPrediction {
     // val modelLogReg = LogisticRegressionModel.load("src/main/models/LogisticRegression")
 
     // Train Neural Network
-    // val modelNN = new MultilayerPerceptronClassifier().setLayers(Array[Int](12, 32, 64, 2)).fit(trainingData)
+    // val modelNN = new MultilayerPerceptronClassifier().setLayers(Array[Int](14, 32, 18, 2)).fit(trainingData)
     // modelNN.write.overwrite().save("src/main/models/NeuralNetwork")
     // val modelNN = MultilayerPerceptronClassificationModel.load("src/main/models/NeuralNetwork")
 
     // Train Random Forest
     // val featureIndexer = new VectorIndexer().setInputCol("features").setOutputCol("indexedFeatures").setMaxCategories(4).fit(trainingData)
-    // val rf = new RandomForestClassifier().setFeaturesCol("indexedFeatures").setMaxDepth(6)
+    // val rf = new RandomForestClassifier().setFeaturesCol("indexedFeatures").setMaxDepth(15)
     // val pipeline = new Pipeline().setStages(Array(featureIndexer, rf))
     // val modelRandomForest = pipeline.fit(trainingData)
     // modelRandomForest.write.overwrite().save("src/main/models/RandomForest")
     // val modelRandomForest = PipelineModel.load("src/main/models/RandomForest")
 
     // Train GBoost Tree
-    // val gbt = new GBTClassifier().setFeaturesCol("indexedFeatures").setMaxDepth(12).setCacheNodeIds(true).setMaxMemoryInMB(1024)
-    // val pipeline = new Pipeline().setStages(Array(labelIndexer, featureIndexer, gbt, labelConverter))
+    // val gbt = new GBTClassifier().setFeaturesCol("indexedFeatures").setMaxDepth(15).setCacheNodeIds(true).setMaxMemoryInMB(1024)
+    // val pipeline = new Pipeline().setStages(Array(featureIndexer, gbt))
     // val modelGBoost = pipeline.fit(trainingData)
     // modelGBoost.write.overwrite().save("src/main/models/GBoost")
     val modelGBoost = PipelineModel.load("src/main/models/GBoost")
@@ -97,7 +99,7 @@ object LinkPrediction {
 
     val model = modelGBoost
 
-    // Predict
+    // Predict (Test)
     val predictions = model.transform(testData)
     val scoreAndLabels = predictions.select("label", "prediction")
       .rdd
@@ -108,9 +110,22 @@ object LinkPrediction {
     println(s"Weighted precision: ${((metrics.weightedPrecision * 100) * 100).round / 100.toDouble}%")
     println(s"Weighted recall: ${((metrics.weightedRecall * 100) * 100).round / 100.toDouble}%")
     println(s"Weighted F1 score: ${((metrics.weightedFMeasure * 100) * 100).round / 100.toDouble}%")
-    println(s"Weighted false positive rate: ${((metrics.weightedFalsePositiveRate * 100) * 100).round / 100.toDouble}%")
     println("Confusion matrix:")
     println(metrics.confusionMatrix)
+
+    // Predict (Train)
+    val predictions_2 = model.transform(trainingData)
+    val scoreAndLabels_2 = predictions_2.select("label", "prediction")
+      .rdd
+      .map(p => (p.getInt(0).toDouble, p.getDouble(1)))
+      .cache()
+
+    val metrics_2 = new MulticlassMetrics(scoreAndLabels_2)
+    println(s"Weighted precision: ${((metrics_2.weightedPrecision * 100) * 100).round / 100.toDouble}%")
+    println(s"Weighted recall: ${((metrics_2.weightedRecall * 100) * 100).round / 100.toDouble}%")
+    println(s"Weighted F1 score: ${((metrics_2.weightedFMeasure * 100) * 100).round / 100.toDouble}%")
+    println("Confusion matrix:")
+    println(metrics_2.confusionMatrix)
 
     val t3 = System.nanoTime()
     println("Elapsed time: " + ((t3 - t2) / 1E9).toInt + " seconds")
