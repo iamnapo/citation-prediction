@@ -16,6 +16,7 @@ function getRandom(arr, n) {
 }
 
 const allEdges = fs.readFileSync('../Cit-HepTh.txt', 'utf8').split('\n').slice(1);
+allEdges.pop()
 let nodes = [];
 allEdges.forEach(el => nodes = nodes.concat(el.split(' ')));
 nodes = [...new Set(nodes)];

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const pairsWithFeatures = fs.readFileSync('../pairs_with_features.csv', 'utf8').split('\n').slice(1);
+pairsWithFeatures.pop();
 const pairs_outliers = pairsWithFeatures.map(pair => {
   pair = pair.split(',')
   const res = []
