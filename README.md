@@ -1,6 +1,8 @@
 # citation-prediction
 
->Link Prediction in Citation Networks using Spark and Scala
+> Link Prediction in Citation Networks using Spark and Scala
+
+[![license](https://flat.badgen.net/github/license/iamnapo/citation-prediction)](./LICENSE)
 
 ## Supervised Learning Results
 
@@ -14,11 +16,15 @@
 
 ## Unsupervised Learning Results
 
-| Algorithm | Train time | Test time | F1 Score | Precision of citation | Hyper-Parameters |
-| :-: | :-: | :-: | :-: | :-: | :-: |
-| k-means | 9sec | 1sec | 76.17% | 0.37%| <ul><li>maxIter: 1000</li><li>tol: 1.0E-9</li></ul> |
-| Bis. k-means (Hierarchical clustering) | 26sec | 1sec | 33.59% | 0.2% | <ul><li>maxIter: 50</li></ul> |
-| Gaussian Mixtures | 49sec | 1sec | 2.95% | 0.07% | <ul><li>maxIter: 1000</li><li>tol: 1.0E-9</li></ul> |
-| __Outlier detection__ | 1sec | 2sec | __86.73%__ | 0.63% | <ul>-</ul> |
+| Algorithm | Train time | Test time | F1 Score | Hyper-Parameters |
+| :-: | :-: | :-: | :-: | :-: |
+| k-means | 9sec | 1sec | 76.17% | <ul><li>maxIter: 1000</li><li>tol: 1.0E-9</li></ul> |
+| Bis. k-means (Hierarchical clustering) | 26sec | 1sec | 33.59% | <ul><li>maxIter: 50</li></ul> |
+| Gaussian Mixtures | 49sec | 1sec | 2.95% | <ul><li>maxIter: 1000</li><li>tol: 1.0E-9</li></ul> |
+| __Outlier detection__ | 1sec | 2sec | __86.73%__ | <ul>-</ul> |
 ---
 >_Machine: i7-3615QM @ 2.3GHz, 8GB RAM_
+
+## License
+
+AGPL-3.0 © [Napoleon-Christos Oikonomou](https://iamnapo.me)
